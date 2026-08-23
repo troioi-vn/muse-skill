@@ -38,6 +38,14 @@ Do split when a run has been **killed for running too long** — that is an oper
 about your harness, not a preference. Split along outcomes that stand alone, tell each run
 which half is not its job, and name the files the other half owns so the boundary cannot blur.
 
+The cleanest split of all is **peeling a refactor off the feature that needs it**. When a
+feature needs existing code reshaped first, send the reshaping as its own run with the
+acceptance bar "every existing test passes with no edits to any test file". That is a
+mechanical pass condition that needs no judgment from you at review time, and it hands the next
+run a validated seam instead of asking one run to refactor and build at once. A 324-line
+controller became a service this way, and checking it took one diff of the moved block against
+`git show HEAD:<file>` to confirm it was byte-identical.
+
 Splitting for **breadth** rather than for a kill is the other good reason, and it has a price:
 every run cold-starts and re-reads the repository, so three runs over one feature pay for
 three explorations. Buy that only when the surface is genuinely wide — a backend layer, then
@@ -83,6 +91,13 @@ Before invoking:
    `grep -rn "toHaveLength([0-9]" <test dirs>` plus a grep for the current count both as a
    numeral and spelled out in prose finds most of them. Miss one and the run ends with a
    handful of failures it correctly refuses to touch, costing a round trip.
+
+   Registries that live in **config** are the same trap in different clothes, and they cost
+   more, because they fail at the lint or architecture step rather than the test step, once the
+   implementation is already written. An architecture linter with a per-class exception list, a
+   DI manifest, a codegen allow-list. The tell is that every existing sibling of the file you
+   are about to add already appears in some config file. Open it and read the siblings before
+   you send, then name it in the prompt as authorized to update.
 7. Separate external actions that must stay outside Muse's authority — deploys, pushes,
    publishing — from ones the **repo's own documented workflow requires**, such as a codegen
    or translation script that calls a paid API. Muse stops and asks before the second kind.
@@ -186,6 +201,7 @@ Acceptance criteria:
 
 Validation:
 - Run <specific commands>. Report each command, its result, and anything not run.
+- Do not leave scratch or throwaway test files in the repository.
 
 Return a concise summary of the implementation, files changed, validation results, and
 remaining risks or questions. If you run out of room, stop and say plainly what you did not
@@ -291,7 +307,10 @@ For concurrent runs: a distinct session id, prompt file, result path, and log pe
 separate worktree per editing process; wait on every process and check every exit status.
 
 The trailing `Shell cwd was reset to <path>` line on stderr is cosmetic. It reports that Muse
-restored a shell working directory after the run and says nothing about success.
+restored a shell working directory after the run and says nothing about success. The result
+file is sometimes cosmetically odd too: on longer runs it can hold the same summary twice, two
+near-identical reports concatenated. Know that before you read the second copy hunting for what
+changed between them.
 
 ## Review
 
@@ -301,6 +320,11 @@ Muse's summary is a claim, not evidence. Verify independently:
    Muse runs code to check its own work, so expect untracked build artifacts —
    `__pycache__/`, coverage files, a stray log — beside the real changes. They are evidence it
    validated rather than scope creep, but never stage them.
+   It will also write throwaway test files into the repo's real test directory to prove a
+   property to itself, then delete them before finishing. Confirm they are actually gone. A
+   killed run leaves them behind and the next full suite picks them up as real tests. Cheaper
+   still, forbid it up front: add "do not leave scratch or throwaway test files in the
+   repository" to the prompt's validation block.
 2. Read the full diff of the source changes.
 3. **Check that existing tests were not weakened**, cheaply:
    `git diff -U0 <test paths> | grep -E '^-[^-]'` — deletions should be pure refactors (a
