@@ -189,6 +189,22 @@ Muse fails loudly, which is a real advantage over agents that exit silently: a b
 
 **A killed run is a different case, and re-running it blindly wastes the work.** When your own harness stops a long background run, no exit-code file is written at all — absent, not nonzero. Inspect before deciding: `git status` against your snapshot, `wc -l` the new files for truncation, and the tail of stderr. A clean worktree means it was still reading and nothing is lost; re-run, ideally narrower. A worktree full of complete files means it was killed while emitting its summary, and the work may be finished. Validate what is on disk before throwing it away, and finish small gaps yourself rather than spending another round trip.
 
+**A run that is merely slow may actually be deadlocked, and it will never notice.** Muse waits for long jobs by polling from a shell, and the loop it writes is often self-matching:
+
+```sh
+while pgrep -f "playwright test e2e/litters" > /dev/null; do sleep 5; done
+```
+
+`pgrep -f` matches whole command lines, and that string is sitting in the loop's own arguments, so it finds itself and the condition is never false. One session lost 46 minutes to two of these before anyone looked. Diagnose it directly rather than waiting longer:
+
+```bash
+ps -eo pid,ppid,etime,args | grep '[w]hile pgrep'
+```
+
+Anything there whose parent is the Muse process is a wait that cannot end. Kill the loop, not the run: the blocked tool call returns and Muse carries on with its context intact, which in that session let it finish within seconds. Killing the run instead throws away everything it has done.
+
+Two habits follow. When a run passes roughly twice its expected time with no new files appearing, check the process tree before assuming it is thinking. And when you write your own cleanup, remember the same trap applies to you: `pkill -f killstuck.sh` matches the shell running it and kills your own session. Filter out `$$`, or match on something the command line does not contain.
+
 For concurrent runs: a distinct session id, prompt file, result path, and log per task; a separate worktree per editing process; wait on every process and check every exit status.
 
 The trailing `Shell cwd was reset to <path>` line on stderr is cosmetic. It reports that Muse restored a shell working directory after the run and says nothing about success. The result file is sometimes cosmetically odd too: on longer runs it can hold the same summary twice, two near-identical reports concatenated. Know that before you read the second copy hunting for what changed between them.
