@@ -1,6 +1,12 @@
 ---
 name: delegate-to-muse
-description: Use when the user explicitly asks for repository work to be handed to Muse — "delegate this to muse", "have muse do it", or the slash command. Covers workspace trust, writing the handoff, running `muse exec`, reviewing the diff that comes back, and committing it. Never reach for it unasked: work you could do directly, do directly. Not for use from inside Muse unless the user asks for nested delegation.
+description: >-
+  Use when the user explicitly asks for repository work to be handed to Muse —
+  "delegate this to muse", "have muse do it", or the slash command. Covers
+  workspace trust, writing the handoff, running `muse exec`, reviewing the diff
+  that comes back, and committing it. Never reach for it unasked: work you could
+  do directly, do directly. Not for use from inside Muse unless the user asks
+  for nested delegation.
 ---
 
 # Delegate to Muse
@@ -189,6 +195,8 @@ Muse fails loudly, which is a real advantage over agents that exit silently: a b
 
 **A killed run is a different case, and re-running it blindly wastes the work.** When your own harness stops a long background run, no exit-code file is written at all — absent, not nonzero. Inspect before deciding: `git status` against your snapshot, `wc -l` the new files for truncation, and the tail of stderr. A clean worktree means it was still reading and nothing is lost; re-run, ideally narrower. A worktree full of complete files means it was killed while emitting its summary, and the work may be finished. Validate what is on disk before throwing it away, and finish small gaps yourself rather than spending another round trip.
 
+Use the same audit for `model stream idle timeout after 180000ms`. That failure exits 1 and may leave a complete, validated tree behind. A reboot can also clear the prompt, result, and exit files while Muse's server-side session survives; inspect the repository first, then recreate the prompt and continue with the same session id instead of starting over.
+
 **A run that is merely slow may actually be deadlocked, and it will never notice.** Muse waits for long jobs by polling from a shell, and the loop it writes is often self-matching:
 
 ```sh
@@ -203,7 +211,7 @@ ps -eo pid,ppid,etime,args | grep '[w]hile pgrep'
 
 Anything there whose parent is the Muse process is a wait that cannot end. Kill the loop, not the run: the blocked tool call returns and Muse carries on with its context intact, which in that session let it finish within seconds. Killing the run instead throws away everything it has done.
 
-Two habits follow. When a run passes roughly twice its expected time with no new files appearing, check the process tree before assuming it is thinking. And when you write your own cleanup, remember the same trap applies to you: `pkill -f killstuck.sh` matches the shell running it and kills your own session. Filter out `$$`, or match on something the command line does not contain.
+Two habits follow. When a run passes roughly twice its expected time with no new files appearing, check the process tree before assuming it is thinking. Before retrying a slow validation command, check for a live copy of that command under Muse; overlapping full suites compete for the same CPU and turn the retry into its own source of timeouts and flakes. And when you write your own cleanup, remember the same trap applies to you: `pkill -f killstuck.sh` matches the shell running it and kills your own session. Filter out `$$`, or match on something the command line does not contain.
 
 For concurrent runs: a distinct session id, prompt file, result path, and log per task; a separate worktree per editing process; wait on every process and check every exit status.
 
@@ -226,6 +234,8 @@ When auditing test coverage, grep for the *behavior* (a distinctive identifier, 
 
 **A green suite is Muse grading its own work.** The cases it adds are written against the implementation it just wrote, so they pass by construction. Read the new cases for the input the implementation does *not* handle rather than for coverage: an unsorted array where order reaches the user, an empty collection, the second item, a row dated in the past.
 
+For lint-driven refactors, compare every original diagnostic site with its pre-run behavior. Name what the old state or effect accomplished before accepting the replacement, especially reset, rollback, confirmation, optimistic-update, and time-boundary behavior. A zero-warning run once removed a discard confirmation entirely; the suite stayed green because that contract had no test. Add the missing regression test instead of treating the clean lint result as proof.
+
 Read new test *comments* against what the assertion underneath them actually executes. One run closed a test with an isolated re-render commented as proving an image URL reached the `<img>`, then conceded two lines down that jsdom never loads images. The assertion re-checked the initials fallback and nothing more. A comment claiming coverage costs nothing to write and reads exactly like the real thing, so delete the feature and watch which cases go red. That is the only check that separates a live assertion from a decorative one, and it takes one command.
 
 Muse's factual accuracy on repository reading is high — a three-part investigation returning thirty-odd `file:line`-anchored claims came back with every one correct, and it declined to invent a disagreement when invited to challenge a premise that was in fact true. Trust its citations enough to spot-check rather than re-derive, and spend the saved effort on judgment: whether the change is the right shape, not whether the line numbers are real.
@@ -241,7 +251,7 @@ muse exec --yolo --model muse-spark-1.2-contributor --session-id "$SID" \
 
 Do not repeat effort or worktree overrides on a continuation unless you are changing them.
 
-When the correction is "make the linter pass", **ban the escapes in the same message**: no `eslint-disable`, no `@ts-expect-error`, no `any`, and say that a rule which genuinely should not apply must be argued for in the report rather than silenced. Suppression is the fastest route to a green check and the one that destroys the signal. Say too that the tests must keep covering what they covered, or type errors inside a test get "fixed" by deleting the assertion that caused them. Asked this way, one run replaced `Record<string, unknown>` casts with the payload's real type and the assertions came back stronger than before.
+When the correction is "make the linter pass", **ban the escapes in the same message**: no `eslint-disable`, no `@ts-expect-error`, no `any`, and no semantic disguise that moves the same operation behind an API the rule does not recognize. Real examples include replacing a state setter with an identity reducer and casting its dispatcher back to `React.Dispatch`, or wrapping the setter in `setTimeout(..., 0)`. A rule that genuinely should not apply must be argued for in the report rather than silenced. Say too that the tests must keep covering what they covered, or type errors inside a test get "fixed" by deleting the assertion that caused them. Asked this way, one run replaced `Record<string, unknown>` casts with the payload's real type and the assertions came back stronger than before.
 
 Limit correction loops. If the same material problem survives two focused attempts, stop and reconsider the prompt, the task boundary, or whether to do it yourself.
 
