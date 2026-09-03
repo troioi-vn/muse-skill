@@ -15,7 +15,7 @@ Muse Code is Meta's terminal coding agent. The orchestrator owns task selection,
 
 **Only delegate when the user asked you to.** A task being large, tedious, cross-cutting, or precisely specified is not a trigger — those you do yourself. Once the user has asked, the delegation covers the piece of work under discussion: follow-up runs, corrections, and the commits that finish it, until they say otherwise. You do not re-ask per run.
 
-Verified against **Muse Code 0.2.1**. If a flag is rejected, read `muse exec --help` and adapt to the installed version rather than guessing at a replacement safety flag.
+Verified against **Muse Code 1.0.2**. If a flag is rejected, read `muse exec --help` and adapt to the installed version rather than guessing at a replacement safety flag.
 
 ## Decide whether to delegate
 
@@ -33,11 +33,13 @@ The cleanest split of all is **peeling a refactor off the feature that needs it*
 
 Splitting for **breadth** rather than for a kill is the other good reason, and it has a price: every run cold-starts and re-reads the repository, so three runs over one feature pay for three explorations. Buy that only when the surface is genuinely wide — a backend layer, then the UI on top of it, then polish — and make it pay by running them **sequentially in one worktree, committing between each**. The commit does the work: it keeps each diff reviewable on its own, lets a bad run be discarded with `git reset` without taking the good ones with it, and hands the next run a tree whose earlier half is already validated.
 
+Weigh that against what 1.3 does by itself: it fans a broad task out to subagents instead of walking the repository serially, so a genuinely wide read can come back complete in about five minutes — one whole-repo security audit ran 45 subagents under a single `muse exec`. Send the wide run first and split when it actually comes back thin, rather than pre-splitting on the assumption that breadth has to be paid for serially. When it does come back thin, its own **gap list** is the queue for run two: ask every broad prompt to close by naming what it did not reach, then aim the next run at the most valuable name on that list. A repo-wide security audit across 130k lines returned exactly one real defect and declined to pad, and closed by listing booking-concurrency as unread; the targeted second run into that named gap is what produced the fix worth shipping.
+
 ## Select the model and effort
 
-Use **`muse-spark-1.2-contributor`**. It is the configured default and it is cheap. Do not switch models without being asked.
+Use **`muse-spark-1.3-contributor`**. Do not switch models without being asked.
 
-`muse-spark-1.2` and `muse-spark-1.1` also resolve on this account; nothing else does. An unavailable model id is **not** caught at argument-parse time — the run starts, then dies with `agent loop failed: model failed: model <id> does not exist or you lack access` and exit 1.
+Always take the `-contributor` suffix. It is the **same model** as the bare id at roughly a tenth of the price, so `muse-spark-1.3` is never the right thing to type. `muse-spark-1.2*` and `muse-spark-1.1` also still resolve; nothing else does. Availability is only discoverable at runtime — there is no `models` subcommand, and `muse models` just opens the TUI — and an unavailable id is **not** caught at argument-parse time: the run starts, then dies with `agent loop failed: model failed: model <id> does not exist or you lack access` and exit 1. So when you reach for an id for the first time, smoke-test it first: `--reasoning-effort minimal` and a prompt of `Reply with exactly: OK` settles it in seconds and costs nothing next to a long run that dies on argument one.
 
 Reasoning effort is a separate axis (`none|minimal|low|medium|high|xhigh|ultra`, default
 `high`). Leave it at `high` for anything with judgment in it; drop to `medium` for mechanical work. Pass it explicitly so nothing is inherited silently, and do not ask the user to pick effort per call.
@@ -73,7 +75,7 @@ muse: warning: rules file at <path>/AGENTS.md exists, but the workspace is untru
 so it is skipped for this session; restart with --trust-workspace to load project rules
 ```
 
-Muse's stderr is small — a couple of hundred bytes on a routine run — so read it every time rather than tailing it. A run whose stderr lacks a `workspace trust: trusted` line did not have your project instructions.
+Muse's stderr is small — a couple of hundred bytes on a routine run — so read it every time rather than tailing it. A run whose stderr lacks a `workspace trust: trusted` line did not have your project instructions. That line names its origin — `source=user-config` for a standing entry in `trust.json`, `source=run-flag` for `--trust-workspace` — so you can tell a permanently trusted repo from one trusted just for this run. The flag wins the label, though: a repo `trust.json` already covers still reports `run-flag` when you pass it, so the line says how trust was granted this time rather than whether it would have been there anyway. Expect a second warning in any repository carrying both `CLAUDE.md` and `AGENTS.md`: Muse loads `AGENTS.md` and ignores `CLAUDE.md` in that directory. Harmless where `CLAUDE.md` only points at `AGENTS.md`, and a silent gap where the two have drifted apart.
 
 ### Foreign personal context
 
@@ -150,7 +152,7 @@ Ask for diagnosis only when diagnosis was requested; ask for implementation and 
 ```bash
 muse exec \
   --yolo \
-  --model muse-spark-1.2-contributor \
+  --model muse-spark-1.3-contributor \
   --reasoning-effort high \
   --session-id "$SID" \
   --prompt-file /unique/path/prompt.md \
@@ -161,7 +163,7 @@ Run it from the repository directory. `muse exec` has no `-C` flag: set the work
 
 **There is no `-o` flag. Stdout is the result** — redirect it or lose it.
 
-`--yolo` disables approval prompts and the shell sandbox and trusts the workspace for that run. It is the right flag for unattended implementation in a repository the user already works in. For pure inspection, drop it and pass `--trust-workspace` alone: the sandbox stays on, project rules still load, and read-only work completes fine.
+`--yolo` disables approval prompts and the shell sandbox and trusts the workspace for that run. It is the right flag for unattended implementation in a repository the user already works in. For pure inspection, drop it and pass `--trust-workspace --disable-approval`: the sandbox stays on and project rules still load, but approval stops defaulting to `on-request` with nobody there to answer it. A repo-wide read-only audit ran clean that way and left the worktree byte-identical. (`--user-input-auto-resolve` is the related escape hatch, for a run that may try to ask you a question.)
 
 Generate `SID` yourself with `uuidgen` before the run. Muse accepts any UUID for `--session-id` and reuses that session on a later `muse exec` with the same id, so you can plan a correction round trip without parsing a session id out of the output. `muse resume` is the interactive TUI path and is not for headless use.
 
@@ -171,6 +173,8 @@ Other flags worth knowing:
 
 - `-w create --worktree-base HEAD` for an isolated worktree; `-w existing --worktree-existing <path>` to reuse one.
 - `--json` emits a durable JSONL event stream. Events are discriminated by `payload_type`; the session UUID is `stream.id` where `stream.kind` is `session`, and assistant text arrives as `run.output.delta`. Only worth it when a program consumes the events — it is far noisier than the plain-text result.
+- `--approval-mode untrusted|on-request|never` and `--disable-approval` control approval independently of the sandbox, which is what lets you keep the sandbox on for an audit.
+- `--no-session-log` suppresses the on-disk transcript. Leave it off — that transcript is the audit trail you will want at review time.
 - `--max-model-steps <N>` caps runaway loops.
 - `--disable-web-tools` for an offline-only run.
 - `--image <path>` attaches a screenshot, repeatable.
@@ -228,7 +232,7 @@ Muse's summary is a claim, not evidence. Verify independently:
 
 Asking for that in the prompt helps and does not fix it. The next run, told all of the above in writing, still handed back a tree whose lint check exited 1, and reported "no further validation required, implementation and focused suites remain green". The words to notice there are **focused suites**: it had run the targeted tests it cared about and never the whole-project check. Watch for any report that names a *narrower* command than the one you asked for, and read a short report as a warning rather than as efficiency. Across one session the reports that came back at 52, 84, and 142 bytes were, every time, the runs concealing something: a suppression, a skipped check, a claim it could not support. The long detailed ones were the honest ones. Length is not proof of either, but a sudden collapse in detail is worth a slower review, not a faster one.
 5. Check acceptance criteria, edge cases, error handling, security and data implications, and consistency with local patterns.
-6. Confirm nothing was committed, pushed, deployed, or published.
+6. Confirm nothing was committed, pushed, deployed, or published. When repository state alone cannot settle that — a branch that moved mid-run, a remote ref that advanced, anything you did not watch happen — read the transcript rather than reasoning from timestamps. Unless you passed `--no-session-log`, every run persists to `~/.local/share/muse/sessions/<YYYY>/<MM>/<DD>/<session-id>/`, and `grep -r 'git push' <that dir>` answers it in one command; one session's `origin/dev` advanced during a read-only audit and the transcript cleared Muse in seconds, the push having come from the user's own terminal. The same tree shows how the run actually worked: `grep -oE '"tool_name":"[^"]+"' session.jsonl | sort | uniq -c` gives the tool mix, and a populated `subagent/` directory gives the fan-out.
 
 When auditing test coverage, grep for the *behavior* (a distinctive identifier, an error code, a header name), not for `it(` or `public function test` — table-driven and dataset-provider tests hide their cases from a title-only search and will make you conclude coverage is missing when it is not.
 
@@ -238,14 +242,16 @@ For lint-driven refactors, compare every original diagnostic site with its pre-r
 
 Read new test *comments* against what the assertion underneath them actually executes. One run closed a test with an isolated re-render commented as proving an image URL reached the `<img>`, then conceded two lines down that jsdom never loads images. The assertion re-checked the initials fallback and nothing more. A comment claiming coverage costs nothing to write and reads exactly like the real thing, so delete the feature and watch which cases go red. That is the only check that separates a live assertion from a decorative one, and it takes one command.
 
-Muse's factual accuracy on repository reading is high — a three-part investigation returning thirty-odd `file:line`-anchored claims came back with every one correct, and it declined to invent a disagreement when invited to challenge a premise that was in fact true. Trust its citations enough to spot-check rather than re-derive, and spend the saved effort on judgment: whether the change is the right shape, not whether the line numbers are real.
+Muse's factual accuracy on repository reading is high — a three-part investigation returning thirty-odd `file:line`-anchored claims came back with every one correct, and it declined to invent a disagreement when invited to challenge a premise that was in fact true. Trust its citations enough to spot-check rather than re-derive, and spend the saved effort on judgment: whether the change is the right shape, not whether the line numbers are real. That still held on 1.3, where an audit's fifteen-odd anchors were all correct, each landing on a line that said what it was claimed to say. The stretching happens one level up, in the **comparative** claim those anchors are wired into: *every* sibling does this, the *only* outlier, *unlike every other* route in the file. That framing is what carries a finding's severity, and it is the half that was wrong — one "unlike every other public listing route" was false, an adjacent block of routes having lacked the same middleware all along. Spot-check the anchors; actually run the grep behind any claim shaped *every* or *only*. The same borrowing under-rates findings as readily as it inflates them: one audit filed a spoofable `X-Forwarded-For` as low severity by quoting the *neighbouring* route's comment calling that header "a brake, not a security control" — true of the route it was written about, and not of the caller ten lines down keying a brute-force budget on the same helper. Check where a severity judgement's justification came from, not only where its line numbers point.
+
+**When a report names its own unverified assumption, settle that before triaging anything underneath it.** 1.3 will tell you which hop it could not check, and that sentence is worth more than the findings stacked on it. A concurrency audit ranked three defects as ordinary-use overbooking, every one conditional on whether the database's OCC tracks index ranges or only documents — a question it correctly said reading the repository cannot answer. One fetch of the vendor's docs settled it (they advertise true serializability, which precludes the phantom) and all three evaporated; acting on the ranking would have bought a counter row and a retry loop guarding a bug that does not exist. These assumptions are almost always external — a vendor's isolation level, a proxy's header handling, a framework's escaping — which is exactly why they are yours to resolve and not the run's.
 
 **When it stops and offers you options, check the repository before picking one.** A halt on a genuine contradiction is the behavior you want. But the options it proposes are the ones it can see, and every one may be a change when the answer is an existing convention. Grep for how the nearest sibling feature solves the same problem, and reply with that rather than authorizing a change.
 
 To correct, re-run with the **same `--session-id`** and send findings via `--prompt-file`:
 
 ```bash
-muse exec --yolo --model muse-spark-1.2-contributor --session-id "$SID" \
+muse exec --yolo --model muse-spark-1.3-contributor --session-id "$SID" \
   --prompt-file /unique/path/findings.md > /unique/path/fix.md 2> /unique/path/fix-err.log
 ```
 

@@ -38,7 +38,7 @@ One nice surprise: you pick the session UUID yourself with `uuidgen` and pass `-
 
 ## Version
 
-Written against Muse Code 0.2.1. Flags move between releases. If one is rejected, read `muse exec --help` rather than guessing at a replacement safety flag.
+Written against Muse Code 1.0.2. Flags move between releases. If one is rejected, read `muse exec --help` rather than guessing at a replacement safety flag.
 
 ## Related
 
