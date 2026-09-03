@@ -56,7 +56,7 @@ Before invoking:
 
 1. Resolve the exact repository or worktree path.
 2. Read the repo's instructions and release/deployment policy.
-3. Snapshot `git status --short --branch`; record pre-existing edits and untracked files.
+3. Snapshot `git status --short --branch`; record pre-existing edits and untracked files. Snapshot the **gates** too. "Make every check green" invites a run to green one that was already red before it arrived, and it will tell you so while doing it: a locale task ended with an unrelated Deptrac violation silenced by a fresh `skip_violations` line, correctly reported as pre-existing and fixed anyway, because green was the bar I had set. Run the checks yourself first, then name the failing ones in the prompt and say that a pre-existing failure is out of scope, to be reported rather than fixed.
 4. Define one bounded outcome, its acceptance criteria, and who owns commit and push.
 5. Identify destructive, external, privileged, or deploy-triggering actions that stay outside Muse's authority.
    When you point Muse at neighbouring callers only to learn validation or conventions, mark
@@ -183,7 +183,7 @@ Put that `cd` in the **same command** as the invocation. Your shell's working di
 
 **There is no `-o` flag. Stdout is the result.** Redirect it or lose it.
 
-`--yolo` disables approval prompts and the shell sandbox and trusts the workspace for that run. It is the right flag for unattended implementation in a repository the user already works in. For pure inspection, drop it and pass `--trust-workspace --disable-approval --disable-write`: project rules still load, approval stops defaulting to `on-request` with nobody there to answer it, and the last one makes read-only an actual guarantee instead of a request. **Telling a run not to modify anything is not enforcement.** Three repo-wide audits were held read-only by prompt wording alone and all three behaved. But that was trust, not a control, and one confused run would have edited the tree. `--disable-write` blocks non-shell workspace writes; its harsher sibling `--disable-shell` blocks workspace shell execution too, which is usually too much for an investigation that needs `grep` and `git log`. (`--user-input-auto-resolve` is the related escape hatch, for a run that may try to ask you a question.)
+`--yolo` disables approval prompts and the shell sandbox and trusts the workspace for that run. It is the right flag for unattended implementation in a repository the user already works in. For pure inspection, drop it and pass `--trust-workspace --disable-approval --disable-write`: project rules still load, approval stops defaulting to `on-request` with nobody there to answer it, and the last one makes read-only an actual guarantee instead of a request. **Telling a run not to modify anything is not enforcement.** Three repo-wide audits were held read-only by prompt wording alone and all three behaved. But that was trust, not a control, and one confused run would have edited the tree. `--disable-write` blocks non-shell workspace writes; its harsher sibling `--disable-shell` blocks workspace shell execution too, which is usually too much for an investigation that needs `grep` and `git log`. Word the prompt's ban the same way. "Do not run the tests" reads as "do not execute anything", and a good run obeys: an audit of `Accept-Language` parsing returned its whole header-to-locale table marked as inference, because it read the parser instead of running it. Half a minute of `php -r` afterwards turned that table into fact and confirmed a bug the reading had only suspected. Name the slow suite you want skipped, and say the run may evaluate pure logic in a scratch REPL. (`--user-input-auto-resolve` is the related escape hatch, for a run that may try to ask you a question.)
 
 Generate `SID` yourself with `uuidgen` before the run. Muse accepts any UUID for `--session-id` and reuses that session on a later `muse exec` with the same id, so you can plan a correction round trip without parsing a session id out of the output. `muse resume` is the interactive TUI path and is not for headless use.
 
@@ -232,7 +232,7 @@ Anything there whose parent is the Muse process is a wait that cannot end. **Kil
 
 For concurrent runs: a distinct session id, prompt file, result path, and log per task; a separate worktree per editing process; wait on every process and check every exit status.
 
-Two cosmetic things worth recognising so you do not read meaning into them: a trailing `Shell cwd was reset to <path>` on stderr says nothing about success, and a long run's result file sometimes holds the same summary twice.
+A trailing `Shell cwd was reset to <path>` on stderr says nothing about success; ignore it. A long run's result file holding the same summary twice is not cosmetic, though. Read both copies. One report's first summary said a Deptrac violation was pre-existing and left alone, and its second said the violation was fixed with a config line. The second was true. The later summary reflects the later state, so when the two disagree, believe it and go read the diff.
 
 ## Review
 
