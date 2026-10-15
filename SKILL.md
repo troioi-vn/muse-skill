@@ -15,7 +15,7 @@ Muse Code is Meta's terminal coding agent. The orchestrator owns task selection,
 
 **Only delegate when the user asked you to.** A task being large, tedious, cross-cutting, or precisely specified is not a trigger. Those you do yourself. Once the user has asked, the delegation covers the piece of work under discussion: follow-up runs, corrections, and the commits that finish it, until they say otherwise. You do not re-ask per run.
 
-Verified against **Muse Code 1.0.2**. If a flag is rejected, read `muse exec --help` and adapt to the installed version rather than guessing at a replacement safety flag.
+Invocation checked with **Muse Code 1.4.7** and `muse-wonder-1.0`. Historical examples below retain the versions on which they were observed. If a flag is rejected, read `muse exec --help` and adapt to the installed version rather than guessing at a replacement safety flag.
 
 ## Decide whether to delegate
 
@@ -27,7 +27,7 @@ Split a large request into independently reviewable outcomes, not file-sized fra
 
 A single coherent run beats several context-starved calls. Do not split merely because the user said "split the task."
 
-Do split when a run has been **killed for running too long**. That is an operational fact about your harness, not a preference. Split along outcomes that stand alone, tell each run which half is not its job, and name the files the other half owns so the boundary cannot blur.
+Do split when a run has been **killed for running too long**, or when a subscription quota interrupts it before a validated outcome. That is an operational constraint, not a preference. Split along outcomes that stand alone, tell each run which half is not its job, and name the files the other half owns so the boundary cannot blur.
 
 The cleanest split of all is **peeling a refactor off the feature that needs it**. Send the reshaping as its own run with the acceptance bar "every existing test passes with no edits to any test file". That is a mechanical pass condition that needs no judgment from you at review time, and it hands the next run a validated seam instead of asking one run to refactor and build at once. Review a pure move by diffing the moved block against `git show HEAD:<file>` to confirm it is byte-identical.
 
@@ -37,16 +37,13 @@ Weigh that against what 1.3 does by itself: it fans a broad task out to subagent
 
 ## Select the model and effort
 
-Use **`muse-spark-1.3-contributor`**. Do not switch models without being asked.
+Use **`muse-wonder-1.0`** at **`medium`** reasoning effort unless the user specifies otherwise. Do not switch models or effort to work around an account limit without their agreement.
 
-Treat that id as the current default rather than as a fact about the world: it is pinned in three places in this file, there is no discovery command, and it will rot the day the next model ships. When you suspect it has, smoke-test the id you think is current (below) rather than editing this file from memory.
+Pass both settings explicitly. Muse Code 1.4.7 still defaults effort to `high`; an omitted flag does not mean medium. Its accepted tiers are `none|minimal|low|medium|high|xhigh|max|ultra`.
 
-Always take the `-contributor` suffix. It is the **same model** as the bare id at roughly a tenth of the price, so `muse-spark-1.3` is never the right thing to type. `muse-spark-1.2*` and `muse-spark-1.1` also still resolve; nothing else does. Availability is only discoverable at runtime, since there is no `models` subcommand and `muse models` just opens the TUI. An unavailable id is **not** caught at argument-parse time either: the run starts, then dies with `agent loop failed: model failed: model <id> does not exist or you lack access` and exit 1. So when you reach for an id for the first time, smoke-test it first: `--reasoning-effort minimal` and a prompt of `Reply with exactly: OK` settles it in seconds and costs nothing next to a long run that dies on argument one.
+Use the exact model id. The old blanket advice to append `-contributor` applied to Spark and must not be carried over to a new model. This CLI exposes `--contributor-mode on|off` separately; preserve the user's configured mode rather than inferring a suffix or a price. `muse model-profile show muse-wonder-1.0 --effort medium` inspects the local profile, but does not prove account access. Smoke-test a newly selected id with the intended effort and `Reply with exactly: OK` before a long run. Read `muse exec --help` if an installed version differs.
 
-Reasoning effort is a separate axis (`none|minimal|low|medium|high|xhigh|ultra`, default
-`high`). Leave it at `high` for anything with judgment in it; drop to `medium` for mechanical work. Pass it explicitly so nothing is inherited silently, and do not ask the user to pick effort per call.
-
-A detailed plan does **not** make a task mechanical. Judge by the cost of a subtle mistake, not by how precisely you wrote the prompt.
+A successful smoke test proves that the request can run, not that the subscription has enough quota for the feature. In one session on the user's reported $5 plan, two successive five-hour usage windows ended with quota errors: the first left backend files, the second added UI and translations, and neither reached tests or a final report. Treat that as an observed limit of that account and workload, not a universal plan allowance or a model-quality benchmark. Inspect the remaining diff and narrow the next run to a validated outcome instead of replaying the entire broad handoff after each reset. Ask before changing the user's chosen agent; if they authorize a direct finish, stop retrying Muse and complete the work yourself.
 
 Judge **breadth** separately from difficulty. A wide task invites any model to scope itself down silently: you get correct work covering less ground, not wrong work. On broad surfaces, narrow the run rather than hoping.
 
@@ -170,8 +167,8 @@ Ask for diagnosis only when diagnosis was requested; ask for implementation and 
 ```bash
 muse exec \
   --yolo \
-  --model muse-spark-1.3-contributor \
-  --reasoning-effort high \
+  --model muse-wonder-1.0 \
+  --reasoning-effort medium \
   --session-id "$SID" \
   --prompt-file /unique/path/prompt.md \
   > /unique/path/result.md 2> /unique/path/err.log
@@ -187,7 +184,7 @@ Put that `cd` in the **same command** as the invocation. Your shell's working di
 
 Generate `SID` yourself with `uuidgen` before the run. Muse accepts any UUID for `--session-id` and reuses that session on a later `muse exec` with the same id, so you can plan a correction round trip without parsing a session id out of the output. `muse resume` is the interactive TUI path and is not for headless use.
 
-Write the prompt to a uniquely named file and pass `--prompt-file`. Never interpolate user-controlled text into the shell.
+Write the prompt to a uniquely named file and pass `--prompt-file`. For work that may span a quota reset or reboot, keep prompts, the session UUID, results and stderr in a private persistent cache directory rather than `/tmp`; a reboot cleared those temporary artifacts in the quota-interrupted session above while the source edits survived. Never interpolate user-controlled text into the shell.
 
 Other flags worth knowing:
 
@@ -220,7 +217,7 @@ Before reviewing anything, confirm all three:
 
 Muse fails loudly, which is a real advantage over agents that exit silently: a bad model id, an auth problem, or a tool error produces exit 1, empty stdout, and one clear line on stderr. Read `err.log` in full; it is small. Check it for the untrusted-workspace warning even on a successful run.
 
-**A killed run is a different case, and re-running it blindly wastes the work.** When your harness stops a long background run, no exit-code file is written at all: absent, not nonzero. Inspect before deciding. Check `git status` against your snapshot, `wc -l` the new files for truncation, and the tail of stderr. A clean worktree means it was still reading and nothing is lost; re-run, ideally narrower. A worktree full of complete files means it was killed while emitting its summary and the work may be finished, so validate what is on disk before throwing it away. The same audit applies to `model stream idle timeout after 180000ms`, which exits 1 and may also leave a complete tree behind, and to a reboot that clears the prompt, result, and exit files while Muse's server-side session survives: inspect the repository first, then continue with the same session id rather than starting over.
+**A killed run is a different case, and re-running it blindly wastes the work.** When your harness stops a long background run, no exit-code file is written at all: absent, not nonzero. Inspect before deciding. Check `git status` against your snapshot, `wc -l` the new files for truncation, and the tail of stderr. A clean worktree means it was still reading and nothing is lost; re-run, ideally narrower. A worktree full of complete files means it was killed while emitting its summary and the work may be finished, so validate what is on disk before throwing it away. The same audit applies to a subscription-quota error or `model stream idle timeout after 180000ms`: either can exit 1 with empty stdout after writing substantial but unvalidated code. Read the quota reset timestamp from stderr and convert it to the user's timezone; do not retry before it. A desktop reminder only notifies the user, it does not resume Muse or the orchestrator. This audit also applies to a reboot that clears the prompt, result, and exit files while Muse's server-side session survives: inspect the repository first, then continue with the same session id rather than starting over.
 
 **A run that is merely slow may actually be deadlocked, and it will never notice.** Muse waits for long jobs by polling from a shell, and the loop it writes is often self-matching: `pgrep -f "playwright test ..."` matches whole command lines, and that string is sitting in the loop's own arguments, so it finds itself and the condition never goes false. Diagnose it directly rather than waiting longer:
 
@@ -266,11 +263,11 @@ Cheaper still, put those instructions in the prompt rather than saving them for 
 To correct, re-run with the **same `--session-id`** and send findings via `--prompt-file`:
 
 ```bash
-muse exec --yolo --model muse-spark-1.3-contributor --session-id "$SID" \
+muse exec --yolo --model muse-wonder-1.0 --reasoning-effort medium --session-id "$SID" \
   --prompt-file /unique/path/findings.md > /unique/path/fix.md 2> /unique/path/fix-err.log
 ```
 
-Do not repeat effort or worktree overrides on a continuation unless you are changing them. Do give it its own prompt and result paths: reusing the first run's filenames overwrites the evidence you are correcting from, and you will want the original when the second report disagrees with it.
+Keep the intended model and effort explicit on a continuation; preserve the existing worktree rather than creating another one. Do give it its own prompt and result paths: reusing the first run's filenames overwrites the evidence you are correcting from, and you will want the original when the second report disagrees with it.
 
 When the correction is "make the linter pass", **ban the escapes in the same message**: no `eslint-disable`, no `@ts-expect-error`, no `any`, and no semantic disguise that moves the same operation behind an API the rule does not recognize. For example, an identity reducer standing in for a state setter, or a `setTimeout(..., 0)` wrapper. A rule that genuinely should not apply must be argued for in the report rather than silenced. Say too that the tests must keep covering what they covered, or type errors inside a test get "fixed" by deleting the assertion that caused them.
 
